@@ -16,11 +16,10 @@
 
 vector_t normalize_V(vector_t vec); 
 float dot_vector(vector_t v1, vector_t v2);
-int closestSphere(sphere sA[], int index, vector_t D, vector_t e); 
+int closestSphere(sphere_t sA[], int index, vector_t D, vector_t e);
 
-int main(void) {
-	
-	
+int main(void)
+{
 
    float x,y,t1; //x and y values for the ray tracing and t1 is for the quadratic formula
    float disc,qA,qB,qC; //discriminant and the A,B,C values from the quadratic formula 
@@ -42,7 +41,7 @@ int main(void) {
    color_t diff_light; //diffuse light
    color_t amb_light;  //ambient light
    color_t spec_light; //specular light
-   sphere sA[NS]; //needs to be an array 
+   sphere_t sA[NS]; //needs to be an array
 				
 		
   
@@ -107,16 +106,7 @@ int main(void) {
 
   // make a 800x800 image (allocates buffer on the heap)
   Image img(800,800);
-    
-	
-	for(int i=0;i<800;i++)
-    {
-		for(int j=0;j<800;j++)
-		{    
-			img.pixel(i,j,blk); 
-		}
-	}
-    
+  
     for(int i=0;i<800;i++)
     {
        for(int j=0;j<800;j++)
@@ -286,7 +276,7 @@ vector_t normalize_V(vector_t vec)
 } 
 
 
-int closestSphere(sphere sA[], int index, vector_t D, vector_t e)
+int closestSphere(sphere_t sA[], int index, vector_t D, vector_t e)
 {
 	int closest_I,i;
 	float closestz;
