@@ -15,12 +15,32 @@ void generateScene(sphere_t *spheres, point_light_t *lights)
 }
 
 // Set up rays based on camera position and image size
-void initRays(ray_t *rays)
+void initRays(ray_t *rays, int img_height, int img_width)
 {
+   ray_t ray;
+   
+   for (int y = 0; y < img_height; y++)
+   {
+      for (int x = 0; x < img_width; x++)
+      {
+         // TODO: math
+         ray.pixel = y*img_width + x;
+         rays[y*img_width + x] = ray;
+      }
+   }
 }
 
-void writeImage(color_t *image, const char *filename)
+void writeImage(char *filename, color_t *image, int width, int height)
 {
+   Image img(width, height);
+
+   // Copy image to Image object
+   // Image is weird: (0,0) is the lower left corner
+   for (int y = 0; y < height; y++)
+      for (int x = 0; x < width; x++)
+         img.pixel(x, height-y-1, image[width*y + x]);
+   
+   img.WriteTga(filename, false);
 }
 
 // returns a float with the t-value of the intersection between a ray
@@ -53,17 +73,16 @@ __device__ color_t castRay(ray_t r, sphere_t *s, point_light_t *lights)
 }
 
 // Takes in a scene and outputs an image
-__global__ void rayTrace(ray_t *rays, int rays_size,
-                         sphere_t *spheres, int spheres_size,
-                         point_light_t *lights, int lights_size,
-                         color_t *image, int image_size)
-{   
-   // Set image background color (black)
+__global__ void rayTrace(ray_t *rays, int num_rays,
+                         sphere_t *spheres, int num_spheres,
+                         point_light_t *lights, int num_lights,
+                         color_t *pixels, int num_pixels)
+{
    color_t bgColor;
    bgColor.r = bgColor.g = bgColor.b = 0;
-   bgColor.f = 1;
-   for (int i = 0; i < image_size; i++)
-      image[i] = bgColor;
+
+   int index = blockDim.x * blockIdx.x + threadIdx.x;
+   pixels[rays[index].pixel] = bgColor;
 }
 
 int main(void)
@@ -84,7 +103,7 @@ int main(void)
    image   = (color_t *)       malloc(image_size);
    
    generateScene(spheres, lights);
-   initRays(rays);
+   initRays(rays, IMG_WIDTH, IMG_HEIGHT);
 
    // cudaMalloc dev_ arrays
    cudaMalloc(&dev_spheres, spheres_size);
@@ -94,22 +113,22 @@ int main(void)
    
    // cudaMemcpy the problem to device
    cudaMemcpy(dev_spheres, spheres, spheres_size, cudaMemcpyHostToDevice);
-   cudaMemcpy(dev_spheres, lights, lights_size, cudaMemcpyHostToDevice);
-   cudaMemcpy(dev_spheres, rays, rays_size, cudaMemcpyHostToDevice);
+   cudaMemcpy(dev_lights, lights, lights_size, cudaMemcpyHostToDevice);
+   cudaMemcpy(dev_rays, rays, rays_size, cudaMemcpyHostToDevice);
    
    // Invoke kernel
-   dim3 dimBlock(BLOCK_DIM, BLOCK_DIM);
-   dim3 dimGrid(IMG_WIDTH/BLOCK_DIM+1, IMG_HEIGHT/BLOCK_DIM+1);
-   rayTrace<<<dimGrid, dimBlock>>>(dev_rays, rays_size,
-                                   dev_spheres, spheres_size,
-                                   dev_lights, lights_size,
-                                   dev_image, image_size);
+   int dimBlock = BLOCK_DIM;
+   int dimGrid = (IMG_HEIGHT*IMG_WIDTH) / BLOCK_DIM;
+   rayTrace<<<dimGrid, dimBlock>>>(dev_rays, IMG_HEIGHT*IMG_WIDTH,
+                                   dev_spheres, NUM_SPHERES,
+                                   dev_lights, NUM_LIGHTS,
+                                   dev_image, IMG_HEIGHT*IMG_WIDTH);
 
    // cudaMemcpy the result image from the device
-   cudaMemcpy(dev_spheres, image, image_size, cudaMemcpyHostToDevice);
+   cudaMemcpy(image, dev_image, image_size, cudaMemcpyDeviceToHost);
    
    // write image to output file
-   writeImage(image, "awesome.tga");
+   writeImage("awesome.tga", image, IMG_WIDTH, IMG_HEIGHT);
 
    // Free memory
    free(spheres);

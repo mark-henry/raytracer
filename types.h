@@ -26,8 +26,7 @@ typedef struct vector{
 typedef struct ray {
    vector_t start;
    vector_t dir;
-   int pixel_index_x;
-   int pixel_index_y;
+   int pixel;
 } ray_t;
 
 typedef struct point_light {
