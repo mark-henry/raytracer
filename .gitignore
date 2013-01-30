@@ -12,8 +12,11 @@
 *.la
 *.a
 
-#Image Files
+# Image Files
 *.tga
+
+# Executables
+raytrace
 
 # Scratch files
 *~

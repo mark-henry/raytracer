@@ -47,13 +47,23 @@ __device__ color_t castRay(ray_t r, sphere_t *s, point_light_t *lights)
    color.r = 0;
    color.g = 1;
    color.b = 0;
+   color.f = 1;
    
    return color;
 }
 
 // Takes in a scene and outputs an image
-__global__ void rayTrace(ray_t *r, sphere_t *s, point_light_t *lights, color_t *image)
-{
+__global__ void rayTrace(ray_t *rays, int rays_size,
+                         sphere_t *spheres, int spheres_size,
+                         point_light_t *lights, int lights_size,
+                         color_t *image, int image_size)
+{   
+   // Set image background color (black)
+   color_t bgColor;
+   bgColor.r = bgColor.g = bgColor.b = 0;
+   bgColor.f = 1;
+   for (int i = 0; i < image_size; i++)
+      image[i] = bgColor;
 }
 
 int main(void)
@@ -90,7 +100,10 @@ int main(void)
    // Invoke kernel
    dim3 dimBlock(BLOCK_DIM, BLOCK_DIM);
    dim3 dimGrid(IMG_WIDTH/BLOCK_DIM+1, IMG_HEIGHT/BLOCK_DIM+1);
-   rayTrace<<<dimGrid, dimBlock>>>(dev_rays, dev_spheres, dev_lights, dev_image);
+   rayTrace<<<dimGrid, dimBlock>>>(dev_rays, rays_size,
+                                   dev_spheres, spheres_size,
+                                   dev_lights, lights_size,
+                                   dev_image, image_size);
 
    // cudaMemcpy the result image from the device
    cudaMemcpy(dev_spheres, image, image_size, cudaMemcpyHostToDevice);
