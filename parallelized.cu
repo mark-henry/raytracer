@@ -9,25 +9,53 @@
 #define IMG_WIDTH 800
 #define IMG_HEIGHT 800
 #define BLOCK_DIM 32
+#define DRAW_DIST 500
 
 void generateScene(sphere_t *spheres, point_light_t *lights)
 {
-   spheres[0].x = 0;
-   spheres[0].y = 0;
-   spheres[0].z = 0;
-   spheres[0].radius = 1;
+   // At the moment, creates a single test sphere and light
+
+   // Make sphere
+   material_t mat;
+   mat.diffuse  = (color_t){.5,.1,.1};
+   mat.specular = (color_t){1,1,1};
+   mat.ambient  = (color_t){0.1, 0.1, 0.1};
+   
+   spheres[0].position = (vector_t){0,0,0};
+   spheres[0].radius = .5;
+   spheres[0].material = mat;
+
+   // Make light
+   lights[0].position = (vector_t){-5, 5, -2};
+   lights[0].color = (color_t){1,1,1};
 }
 
 // Set up rays based on camera position and image size
 void initRays(ray_t *rays, int img_height, int img_width)
 {
    ray_t ray;
-   
+   vector_t camPos = {0, 2, 0};
+   vector_t camLook = {0, -1, 0};
+   double camFOVx = tan(3.14159 / 4);
+   double camFOVy = tan(camFOVx * img_height/img_width);
+
+   // Iterate over all pixels
    for (int y = 0; y < img_height; y++)
    {
       for (int x = 0; x < img_width; x++)
       {
-         // TODO: math
+         // Calculate u,v coordinates of the look vector
+         // Keep in mind that pixel (0,0) is in top left, while
+         //  (u,v) = (0,0) is in the bottom left
+         double u = (double)x / img_width;
+         double v = (double)(img_height-y-1) / img_height;
+
+         // Cast rays orthogonally along -z for now
+         ray.start.x = camPos.x - 0.5 + (double)x / img_width;
+         ray.start.y = camPos.y;
+         ray.start.z = camPos.z - 0.5 + (double)y / img_height;
+         ray.dir = camLook;
+         
          ray.pixel = y*img_width + x;
          rays[y*img_width + x] = ray;
       }
@@ -55,20 +83,20 @@ __device__ double dotProduct(vector_t a, vector_t b)
 // Returns the t-parameter value of the intersection between
 //  a ray and a sphere.
 // Returns a negative value if the ray misses the sphere.
-__device__ double sphereIntersectionTest(sphere_t sphere, ray_t ray)
+__device__ double sphereIntersectionTest(sphere_t *sphere, ray_t *ray)
 {
    // For explanation of algorithm, see http://tinyurl.com/yjoup3w
    
    // Transform ray into sphere space
-   ray.start.x -= sphere.x;
-   ray.start.y -= sphere.y;
-   ray.start.z -= sphere.z;
+   ray->start.x -= sphere->position.x;
+   ray->start.y -= sphere->position.y;
+   ray->start.z -= sphere->position.z;
 
    // We must solve the quadratic equation with A, B, C equal to:
-   double A = dotProduct(ray.dir, ray.dir);
-   double B = 2*dotProduct(ray.dir, ray.start);
-   double C = dotProduct(ray.start, ray.start) -
-               sphere.radius * sphere.radius;
+   double A = dotProduct(ray->dir, ray->dir);
+   double B = 2*dotProduct(ray->dir, ray->start);
+   double C = dotProduct(ray->start, ray->start) -
+               sphere->radius * sphere->radius;
 
    // If the discriminant is negative, the ray has missed the sphere
    double discriminant = B*B - 4*A*C;
@@ -94,11 +122,11 @@ __device__ double sphereIntersectionTest(sphere_t sphere, ray_t ray)
 }
 
 // Calculates the color of a ray which is known to intersect a sphere
-__device__ color_t directIllumination(sphere_t sphere, ray_t ray, double t,
-                                      point_light_t *light, int num_lights)
+__device__ color_t directIllumination(sphere_t *sphere, ray_t *ray, double t,
+                                      point_light_t *lights, int num_lights)
 {
-   color_t illum;
-   illum.r = illum.g = illum.b = 1;
+   color_t illum = {1,0,0};
+   
    
    return illum;
 }
@@ -108,25 +136,21 @@ __device__ color_t castRay(ray_t *ray,
                            sphere_t *spheres, int num_spheres,
                            point_light_t *lights, int num_lights)
 {
-   color_t bgColor;
-   bgColor.r = bgColor.g = bgColor.b = 0;
+   color_t bgColor = {0,0,0};
+   color_t rayColor = bgColor;
 
    // Does this ray intersect with any spheres?
-   double t = -1;
-   for (int si = 0; si < num_spheres; si++)
-      t = max(t, sphereIntersectionTest(spheres[si], *ray));
-
-   if (t > 0) {
-      // There was an intersection
-      // Set color to bright green for now for debugging purposes
-      color_t color;
-      color.r = 0;
-      color.g = 1;
-      color.b = 0;
-      return color;
+   double closest = DRAW_DIST;
+   double t;
+   for (int sphere = 0; sphere < num_spheres; sphere++) {
+      t = sphereIntersectionTest(&spheres[sphere], ray);
+      if (t > 0 && t < closest) {
+         closest = t;
+         rayColor = directIllumination(&spheres[sphere], ray, t, lights, num_lights);
+      }
    }
-   else
-      return bgColor;
+
+   return rayColor;
 }
 
 // Takes in a scene and outputs an image

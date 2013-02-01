@@ -9,19 +9,23 @@ typedef struct color {
    double f; // "filter" or "alpha"
 } color_t;
 
-typedef struct sphere {
-  double x; 
-  double y; 
-  double z; 
-  color_t clr; 
-  double radius;
-} sphere_t;
- 
+typedef struct material {
+   color_t diffuse;
+   color_t specular;
+   color_t ambient;
+} material_t;
+
 typedef struct vector{
   double x;
   double y; 
   double z; 
 } vector_t;
+
+typedef struct sphere {
+  vector_t position;
+  material_t material;
+  double radius;
+} sphere_t;
 
 typedef struct ray {
    vector_t start;
@@ -30,7 +34,7 @@ typedef struct ray {
 } ray_t;
 
 typedef struct point_light {
-   vector_t location;
+   vector_t position;
    color_t color;
 } point_light_t;
 
