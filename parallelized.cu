@@ -19,14 +19,14 @@ void generateScene(sphere_t *spheres, point_light_t *lights)
    material_t mat;
    mat.diffuse  = (color_t){.5,.1,.1};
    mat.specular = (color_t){1,1,1};
-   mat.ambient  = (color_t){0.1, 0.1, 0.1};
+   mat.ambient  = (color_t){0.11, 0.1, 0.1};
    
    spheres[0].position = (vector_t){0,0,0};
    spheres[0].radius = .5;
    spheres[0].material = mat;
 
    // Make light
-   lights[0].position = (vector_t){-5, 5, -2};
+   lights[0].position = (vector_t){-5, 5, 2};
    lights[0].color = (color_t){1,1,1};
 }
 
@@ -34,8 +34,8 @@ void generateScene(sphere_t *spheres, point_light_t *lights)
 void initRays(ray_t *rays, int img_height, int img_width)
 {
    ray_t ray;
-   vector_t camPos = {0, 2, 0};
-   vector_t camLook = {0, -1, 0};
+   vector_t camPos = {0, 0, 2};
+   vector_t camLook = {0, 0, -1};
    double camFOVx = tan(3.14159 / 4);
    double camFOVy = tan(camFOVx * img_height/img_width);
 
@@ -52,8 +52,8 @@ void initRays(ray_t *rays, int img_height, int img_width)
 
          // Cast rays orthogonally along -z for now
          ray.start.x = camPos.x - 0.5 + (double)x / img_width;
-         ray.start.y = camPos.y;
-         ray.start.z = camPos.z - 0.5 + (double)y / img_height;
+         ray.start.y = camPos.y - 0.5 + (double)y / img_height;
+         ray.start.z = camPos.z;
          ray.dir = camLook;
          
          ray.pixel = y*img_width + x;
@@ -78,6 +78,18 @@ void writeImage(char *filename, color_t *image, int width, int height)
 __device__ double dotProduct(vector_t a, vector_t b)
 {
    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+__device__ double length(vector_t *v) {
+   return sqrt(v->x*v->x + v->y*v->y + v->z*v->z);
+}
+
+__device__ void normalize(vector_t *v)
+{
+   double len = length(v);
+   v->x /= len;
+   v->y /= len;
+   v->z /= len;
 }
 
 // Returns the t-parameter value of the intersection between
@@ -125,8 +137,35 @@ __device__ double sphereIntersectionTest(sphere_t *sphere, ray_t *ray)
 __device__ color_t directIllumination(sphere_t *sphere, ray_t *ray, double t,
                                       point_light_t *lights, int num_lights)
 {
-   color_t illum = {1,0,0};
-   
+   color_t illum = sphere->material.ambient; // Start with ambient
+
+   // inter is the position of the intersection point
+   vector_t inter = ray->start;
+   inter.x += ray->dir.x * t;
+   inter.y += ray->dir.y * t;
+   inter.z += ray->dir.z * t;
+
+   // normal is the surface normal at the point of intersection
+   vector_t normal = sphere->position;
+   normal.x -= inter.x;
+   normal.y -= inter.y;
+   normal.z -= inter.z;
+
+   // Add diffuse and specular for each point_light
+   for (int li = 0; li < num_lights; li++) {
+      // L is the incident light vector
+      vector_t L = lights[li].position;
+      L.x -= inter.x;
+      L.y -= inter.y;
+      L.z -= inter.z;
+      normalize(&L);
+
+      // Add diffuse
+      double dotProd = max(0.0, dotProduct(normal, L));
+      illum.r += dotProd * sphere->material.diffuse.r * lights[li].color.r;
+      illum.g += dotProd * sphere->material.diffuse.g * lights[li].color.g;
+      illum.b += dotProd * sphere->material.diffuse.b * lights[li].color.b;
+   }
    
    return illum;
 }
