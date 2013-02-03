@@ -6,9 +6,9 @@
 
 #define NUM_SPHERES 1
 #define NUM_LIGHTS 1
-#define IMG_WIDTH 800
-#define IMG_HEIGHT 800
-#define BLOCK_DIM 32
+#define IMG_WIDTH 8
+#define IMG_HEIGHT 8
+#define BLOCK_DIM 8
 #define DRAW_DIST 500
 
 void generateScene(sphere_t *spheres, point_light_t *lights)
@@ -34,7 +34,7 @@ void generateScene(sphere_t *spheres, point_light_t *lights)
 void initRays(ray_t *rays, int img_height, int img_width)
 {
    ray_t ray;
-   vector_t camPos = {0, 0, 2};
+   vector_t camPos = {0, 0, 10};
    vector_t camLook = {0, 0, -1};
    double camFOVx = tan(3.14159 / 4);
    double camFOVy = tan(camFOVx * img_height/img_width);
@@ -47,12 +47,12 @@ void initRays(ray_t *rays, int img_height, int img_width)
          // Calculate u,v coordinates of the look vector
          // Keep in mind that pixel (0,0) is in top left, while
          //  (u,v) = (0,0) is in the bottom left
-         double u = (double)x / img_width;
-         double v = (double)(img_height-y-1) / img_height;
+         //double u = (double)x / img_width;
+         //double v = (double)(img_height-y-1) / img_height;
 
          // Cast rays orthogonally along -z for now
          ray.start.x = camPos.x - 0.5 + (double)x / img_width;
-         ray.start.y = camPos.y - 0.5 + (double)y / img_height;
+         ray.start.y = camPos.y - 0.5 + (double)(img_height - y) / img_height;
          ray.start.z = camPos.z;
          ray.dir = camLook;
          
@@ -67,10 +67,10 @@ void writeImage(char *filename, color_t *image, int width, int height)
    Image img(width, height);
 
    // Copy image to Image object
-   // Image is weird: (0,0) is the lower left corner
+   // Image is weird: (0,0) is the lower right corner
    for (int y = 0; y < height; y++)
       for (int x = 0; x < width; x++)
-         img.pixel(x, height-y-1, image[width*y + x]);
+         img.pixel(width-x-1, y, image[width*y + x]);
    
    img.WriteTga(filename, false);
 }

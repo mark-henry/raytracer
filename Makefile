@@ -5,4 +5,4 @@ raytrace: parallelized.cu Image.cpp
 
 run: raytrace
 	./raytrace
-	eog awesome.tga &
+	#eog awesome.tga &
