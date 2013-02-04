@@ -13,6 +13,7 @@ typedef struct material {
    color_t diffuse;
    color_t specular;
    color_t ambient;
+   double shininess;
 } material_t;
 
 typedef struct vector{

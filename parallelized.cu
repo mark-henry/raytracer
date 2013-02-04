@@ -4,12 +4,21 @@
 #include "types.h"
 #include <math.h>
 
-#define NUM_SPHERES 1
-#define NUM_LIGHTS 1
-#define IMG_WIDTH 8
-#define IMG_HEIGHT 8
-#define BLOCK_DIM 8
-#define DRAW_DIST 500
+#ifdef DEBUG
+   #define NUM_SPHERES 1
+   #define NUM_LIGHTS 1
+   #define IMG_WIDTH 8
+   #define IMG_HEIGHT 8
+   #define BLOCK_DIM 1
+   #define DRAW_DIST 500
+#else
+   #define NUM_SPHERES 1
+   #define NUM_LIGHTS 1
+   #define IMG_WIDTH 512
+   #define IMG_HEIGHT 512
+   #define BLOCK_DIM 32
+   #define DRAW_DIST 500
+#endif
 
 void generateScene(sphere_t *spheres, point_light_t *lights)
 {
@@ -17,16 +26,17 @@ void generateScene(sphere_t *spheres, point_light_t *lights)
 
    // Make sphere
    material_t mat;
-   mat.diffuse  = (color_t){.5,.1,.1};
-   mat.specular = (color_t){1,1,1};
+   mat.diffuse  = (color_t){0.5, 0.1, 0.1};
+   mat.specular = (color_t){.5, .4, .8};
    mat.ambient  = (color_t){0.11, 0.1, 0.1};
+   mat.shininess = 100;
    
    spheres[0].position = (vector_t){0,0,0};
-   spheres[0].radius = .5;
+   spheres[0].radius = 1;
    spheres[0].material = mat;
 
    // Make light
-   lights[0].position = (vector_t){-5, 5, 2};
+   lights[0].position = (vector_t){-5, 5, -3};
    lights[0].color = (color_t){1,1,1};
 }
 
@@ -51,8 +61,8 @@ void initRays(ray_t *rays, int img_height, int img_width)
          //double v = (double)(img_height-y-1) / img_height;
 
          // Cast rays orthogonally along -z for now
-         ray.start.x = camPos.x - 0.5 + (double)x / img_width;
-         ray.start.y = camPos.y - 0.5 + (double)(img_height - y) / img_height;
+         ray.start.x = camPos.x - 1 + 2 * (double)x / img_width;
+         ray.start.y = camPos.y - 1 + 2 * (double)(img_height - y) / img_height;
          ray.start.z = camPos.z;
          ray.dir = camLook;
          
@@ -67,17 +77,17 @@ void writeImage(char *filename, color_t *image, int width, int height)
    Image img(width, height);
 
    // Copy image to Image object
-   // Image is weird: (0,0) is the lower right corner
+   // Image is weird: (0,0) is the lower left corner
    for (int y = 0; y < height; y++)
       for (int x = 0; x < width; x++)
-         img.pixel(width-x-1, y, image[width*y + x]);
+         img.pixel(x, height-y-1, image[width*y + x]);
    
    img.WriteTga(filename, false);
 }
 
-__device__ double dotProduct(vector_t a, vector_t b)
+__device__ double dotProduct(vector_t *a, vector_t *b)
 {
-   return a.x * b.x + a.y * b.y + a.z * b.z;
+   return a->x * b->x + a->y * b->y + a->z * b->z;
 }
 
 __device__ double length(vector_t *v) {
@@ -92,22 +102,35 @@ __device__ void normalize(vector_t *v)
    v->z /= len;
 }
 
+__device__ vector_t reflection(vector_t *in, vector_t *across)
+{
+   vector_t R;
+   double dotProd = dotProduct(in, across);
+
+   R.x = -1 * in->x + 2 * dotProd * across->x;
+   R.y = -1 * in->y + 2 * dotProd * across->y;
+   R.z = -1 * in->z + 2 * dotProd * across->z;
+   
+   return R;
+}
+
 // Returns the t-parameter value of the intersection between
 //  a ray and a sphere.
 // Returns a negative value if the ray misses the sphere.
-__device__ double sphereIntersectionTest(sphere_t *sphere, ray_t *ray)
+__device__ double sphereIntersectionTest(sphere_t *sphere, ray_t *in_ray)
 {
    // For explanation of algorithm, see http://tinyurl.com/yjoup3w
    
    // Transform ray into sphere space
-   ray->start.x -= sphere->position.x;
-   ray->start.y -= sphere->position.y;
-   ray->start.z -= sphere->position.z;
+   ray_t ray = *in_ray;
+   ray.start.x -= sphere->position.x;
+   ray.start.y -= sphere->position.y;
+   ray.start.z -= sphere->position.z;
 
    // We must solve the quadratic equation with A, B, C equal to:
-   double A = dotProduct(ray->dir, ray->dir);
-   double B = 2*dotProduct(ray->dir, ray->start);
-   double C = dotProduct(ray->start, ray->start) -
+   double A = dotProduct(&ray.dir, &ray.dir);
+   double B = 2*dotProduct(&ray.dir, &ray.start);
+   double C = dotProduct(&ray.start, &ray.start) -
                sphere->radius * sphere->radius;
 
    // If the discriminant is negative, the ray has missed the sphere
@@ -137,7 +160,7 @@ __device__ double sphereIntersectionTest(sphere_t *sphere, ray_t *ray)
 __device__ color_t directIllumination(sphere_t *sphere, ray_t *ray, double t,
                                       point_light_t *lights, int num_lights)
 {
-   color_t illum = sphere->material.ambient; // Start with ambient
+   color_t illum = {0,0,0};
 
    // inter is the position of the intersection point
    vector_t inter = ray->start;
@@ -146,10 +169,16 @@ __device__ color_t directIllumination(sphere_t *sphere, ray_t *ray, double t,
    inter.z += ray->dir.z * t;
 
    // normal is the surface normal at the point of intersection
-   vector_t normal = sphere->position;
-   normal.x -= inter.x;
-   normal.y -= inter.y;
-   normal.z -= inter.z;
+   vector_t normal = inter;
+   normal.x -= sphere->position.x;
+   normal.y -= sphere->position.y;
+   normal.z -= sphere->position.z;
+   normalize(&normal);
+   //printf("nomal at (%f,%f,%f) is (%f,%f,%f)\n", inter.x, inter.y, inter.z, normal.x, normal.y, normal.z);
+
+   // V is the eye vector
+   vector_t V = ray->dir;
+   normalize(&V);
 
    // Add diffuse and specular for each point_light
    for (int li = 0; li < num_lights; li++) {
@@ -160,11 +189,23 @@ __device__ color_t directIllumination(sphere_t *sphere, ray_t *ray, double t,
       L.z -= inter.z;
       normalize(&L);
 
+      // Add ambient
+      illum.r += sphere->material.ambient.r * lights[li].color.r;
+      illum.g += sphere->material.ambient.g * lights[li].color.g;
+      illum.b += sphere->material.ambient.b * lights[li].color.b;
+
       // Add diffuse
-      double dotProd = max(0.0, dotProduct(normal, L));
+      double dotProd = max(0.0, dotProduct(&normal, &L));
       illum.r += dotProd * sphere->material.diffuse.r * lights[li].color.r;
       illum.g += dotProd * sphere->material.diffuse.g * lights[li].color.g;
       illum.b += dotProd * sphere->material.diffuse.b * lights[li].color.b;
+
+      // Add specular
+      vector_t R = reflection(&L, &normal);
+      double specDotProd = pow(min(0.0, dotProduct(&V, &R)), sphere->material.shininess);
+      illum.r += sphere->material.specular.r * specDotProd * lights[li].color.r;
+      illum.g += sphere->material.specular.g * specDotProd * lights[li].color.g;
+      illum.b += sphere->material.specular.b * specDotProd * lights[li].color.b;
    }
    
    return illum;
