@@ -50,8 +50,7 @@ void initRays(ray_t *rays, int img_height, int img_width)
    double camFOVy = tan(camFOVx * img_height/img_width);
 
    // Iterate over all pixels
-   for (int y = 0; y < img_height; y++)
-   {
+   for (int y = 0; y < img_height; y++) {
       for (int x = 0; x < img_width; x++)
       {
          // Calculate u,v coordinates of the look vector
@@ -85,31 +84,31 @@ void writeImage(char *filename, color_t *image, int width, int height)
    img.WriteTga(filename, false);
 }
 
-__device__ double dotProduct(vector_t *a, vector_t *b)
+inline __device__ double dotProduct(vector_t a, vector_t b)
 {
-   return a->x * b->x + a->y * b->y + a->z * b->z;
+   return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
-__device__ double length(vector_t *v) {
-   return sqrt(v->x*v->x + v->y*v->y + v->z*v->z);
+inline __device__ double length(vector_t v) {
+   return sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
 }
 
-__device__ void normalize(vector_t *v)
+inline __device__ void normalize(vector_t *v)
 {
-   double len = length(v);
+   double len = length(*v);
    v->x /= len;
    v->y /= len;
    v->z /= len;
 }
 
-__device__ vector_t reflection(vector_t *in, vector_t *across)
+inline __device__ vector_t reflection(vector_t in, vector_t across)
 {
    vector_t R;
    double dotProd = dotProduct(in, across);
 
-   R.x = -1 * in->x + 2 * dotProd * across->x;
-   R.y = -1 * in->y + 2 * dotProd * across->y;
-   R.z = -1 * in->z + 2 * dotProd * across->z;
+   R.x = -1 * in.x + 2 * dotProd * across.x;
+   R.y = -1 * in.y + 2 * dotProd * across.y;
+   R.z = -1 * in.z + 2 * dotProd * across.z;
    
    return R;
 }
@@ -128,9 +127,9 @@ __device__ double sphereIntersectionTest(sphere_t *sphere, ray_t *in_ray)
    ray.start.z -= sphere->position.z;
 
    // We must solve the quadratic equation with A, B, C equal to:
-   double A = dotProduct(&ray.dir, &ray.dir);
-   double B = 2*dotProduct(&ray.dir, &ray.start);
-   double C = dotProduct(&ray.start, &ray.start) -
+   double A = dotProduct(ray.dir, ray.dir);
+   double B = 2*dotProduct(ray.dir, ray.start);
+   double C = dotProduct(ray.start, ray.start) -
                sphere->radius * sphere->radius;
 
    // If the discriminant is negative, the ray has missed the sphere
@@ -195,14 +194,14 @@ __device__ color_t directIllumination(sphere_t *sphere, ray_t *ray, double t,
       illum.b += sphere->material.ambient.b * lights[li].color.b;
 
       // Add diffuse
-      double dotProd = max(0.0, dotProduct(&normal, &L));
+      double dotProd = max(0.0, dotProduct(normal, L));
       illum.r += dotProd * sphere->material.diffuse.r * lights[li].color.r;
       illum.g += dotProd * sphere->material.diffuse.g * lights[li].color.g;
       illum.b += dotProd * sphere->material.diffuse.b * lights[li].color.b;
 
       // Add specular
-      vector_t R = reflection(&L, &normal);
-      double specDotProd = pow(min(0.0, dotProduct(&V, &R)), sphere->material.shininess);
+      vector_t R = reflection(L, normal);
+      double specDotProd = pow(min(0.0, dotProduct(V, R)), sphere->material.shininess);
       illum.r += sphere->material.specular.r * specDotProd * lights[li].color.r;
       illum.g += sphere->material.specular.g * specDotProd * lights[li].color.g;
       illum.b += sphere->material.specular.b * specDotProd * lights[li].color.b;
