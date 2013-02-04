@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include "Image.h"
 #include "types.h"
+#include "vector_math.h"
 #include <math.h>
 
 #ifdef DEBUG
@@ -84,35 +85,6 @@ void writeImage(char *filename, color_t *image, int width, int height)
    img.WriteTga(filename, false);
 }
 
-inline __device__ double dotProduct(vector_t a, vector_t b)
-{
-   return a.x * b.x + a.y * b.y + a.z * b.z;
-}
-
-inline __device__ double length(vector_t v) {
-   return sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
-}
-
-inline __device__ void normalize(vector_t *v)
-{
-   double len = length(*v);
-   v->x /= len;
-   v->y /= len;
-   v->z /= len;
-}
-
-inline __device__ vector_t reflection(vector_t in, vector_t across)
-{
-   vector_t R;
-   double dotProd = dotProduct(in, across);
-
-   R.x = -1 * in.x + 2 * dotProd * across.x;
-   R.y = -1 * in.y + 2 * dotProd * across.y;
-   R.z = -1 * in.z + 2 * dotProd * across.z;
-   
-   return R;
-}
-
 // Returns the t-parameter value of the intersection between
 //  a ray and a sphere.
 // Returns a negative value if the ray misses the sphere.
@@ -122,9 +94,7 @@ __device__ double sphereIntersectionTest(sphere_t *sphere, ray_t *in_ray)
    
    // Transform ray into sphere space
    ray_t ray = *in_ray;
-   ray.start.x -= sphere->position.x;
-   ray.start.y -= sphere->position.y;
-   ray.start.z -= sphere->position.z;
+   ray.start = subtract(ray.start, sphere->position);
 
    // We must solve the quadratic equation with A, B, C equal to:
    double A = dotProduct(ray.dir, ray.dir);
