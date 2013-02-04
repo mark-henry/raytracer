@@ -27,10 +27,10 @@ void generateScene(sphere_t *spheres, point_light_t *lights)
 
    // Make sphere
    material_t mat;
-   mat.diffuse  = (color_t){0.5, 0.1, 0.1};
-   mat.specular = (color_t){.5, .4, .8};
+   mat.diffuse  = (color_t){0.7, 0.1, 0.1};
+   mat.specular = (color_t){.1, .3, .7};
    mat.ambient  = (color_t){0.11, 0.1, 0.1};
-   mat.shininess = 100;
+   mat.shininess = 500;
    
    spheres[0].position = (vector_t){0,0,0};
    spheres[0].radius = 1;
@@ -125,6 +125,14 @@ __device__ double sphereIntersectionTest(sphere_t *sphere, ray_t *in_ray)
       return max(t0, t1);
 }
 
+// Helper function for illumination calculations
+inline __device__ void addLightingFactor(color_t *illum, color_t material, color_t light)
+{
+   illum->r += material.r * light.r;
+   illum->g += material.g * light.g;
+   illum->b += material.b * light.b;
+}
+
 // Calculates the color of a ray which is known to intersect a sphere
 __device__ color_t directIllumination(sphere_t *sphere, ray_t *ray, double t,
                                       point_light_t *lights, int num_lights)
@@ -132,18 +140,11 @@ __device__ color_t directIllumination(sphere_t *sphere, ray_t *ray, double t,
    color_t illum = {0,0,0};
 
    // inter is the position of the intersection point
-   vector_t inter = ray->start;
-   inter.x += ray->dir.x * t;
-   inter.y += ray->dir.y * t;
-   inter.z += ray->dir.z * t;
+   vector_t inter = add(ray->start, multiply(ray->dir, t));
 
    // normal is the surface normal at the point of intersection
-   vector_t normal = inter;
-   normal.x -= sphere->position.x;
-   normal.y -= sphere->position.y;
-   normal.z -= sphere->position.z;
+   vector_t normal = subtract(inter, sphere->position);
    normalize(&normal);
-   //printf("nomal at (%f,%f,%f) is (%f,%f,%f)\n", inter.x, inter.y, inter.z, normal.x, normal.y, normal.z);
 
    // V is the eye vector
    vector_t V = ray->dir;
@@ -152,29 +153,22 @@ __device__ color_t directIllumination(sphere_t *sphere, ray_t *ray, double t,
    // Add diffuse and specular for each point_light
    for (int li = 0; li < num_lights; li++) {
       // L is the incident light vector
-      vector_t L = lights[li].position;
-      L.x -= inter.x;
-      L.y -= inter.y;
-      L.z -= inter.z;
+      vector_t L = subtract(lights[li].position, inter);
       normalize(&L);
 
       // Add ambient
-      illum.r += sphere->material.ambient.r * lights[li].color.r;
-      illum.g += sphere->material.ambient.g * lights[li].color.g;
-      illum.b += sphere->material.ambient.b * lights[li].color.b;
+      addLightingFactor(&illum, sphere->material.ambient, lights[li].color);
 
       // Add diffuse
       double dotProd = max(0.0, dotProduct(normal, L));
-      illum.r += dotProd * sphere->material.diffuse.r * lights[li].color.r;
-      illum.g += dotProd * sphere->material.diffuse.g * lights[li].color.g;
-      illum.b += dotProd * sphere->material.diffuse.b * lights[li].color.b;
+      addLightingFactor(&illum, multiply(sphere->material.diffuse, dotProd),
+                        lights[li].color);
 
       // Add specular
       vector_t R = reflection(L, normal);
       double specDotProd = pow(min(0.0, dotProduct(V, R)), sphere->material.shininess);
-      illum.r += sphere->material.specular.r * specDotProd * lights[li].color.r;
-      illum.g += sphere->material.specular.g * specDotProd * lights[li].color.g;
-      illum.b += sphere->material.specular.b * specDotProd * lights[li].color.b;
+      addLightingFactor(&illum, multiply(sphere->material.specular, specDotProd),
+                        lights[li].color);
    }
    
    return illum;

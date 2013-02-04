@@ -8,6 +8,14 @@ inline __device__ vector_t multiply(vector_t v, double coeff)
    return v;
 }
 
+inline __device__ color_t multiply(color_t c, double coeff)
+{
+   c.r *= coeff;
+   c.g *= coeff;
+   c.b *= coeff;
+   return c;
+}
+
 inline __device__ vector_t add(vector_t a, vector_t b)
 {
    a.x += b.x;
