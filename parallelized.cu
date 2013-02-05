@@ -42,29 +42,31 @@ void generateScene(sphere_t *spheres, point_light_t *lights)
 }
 
 // Set up rays based on camera position and image size
-void initRays(ray_t *rays, int img_height, int img_width)
+void initRays(ray_t *rays, vector_t pos, vector_t look, vector_t up,
+              int img_height, int img_width)
 {
    ray_t ray;
-   vector_t camPos = {0, 0, 10};
-   vector_t camLook = {0, 0, -1};
-   double camFOVx = tan(3.14159 / 4);
-   double camFOVy = tan(camFOVx * img_height/img_width);
+   double aspectRatio = (double)img_height / img_width;
+   vector_t rightShift, upShift;
+   double u, v;
+   vector_t right;
 
+   normalize(&look);
+   normalize(&up);
+   right = cross(look, up);
+   
    // Iterate over all pixels
    for (int y = 0; y < img_height; y++) {
       for (int x = 0; x < img_width; x++)
       {
-         // Calculate u,v coordinates of the look vector
-         // Keep in mind that pixel (0,0) is in top left, while
-         //  (u,v) = (0,0) is in the bottom left
-         //double u = (double)x / img_width;
-         //double v = (double)(img_height-y-1) / img_height;
+         u = aspectRatio * x / img_width * 2 - 1;
+         v = -((double)y / img_height * 2 - 1);
 
-         // Cast rays orthogonally along -z for now
-         ray.start.x = camPos.x - 1 + 2 * (double)x / img_width;
-         ray.start.y = camPos.y - 1 + 2 * (double)(img_height - y) / img_height;
-         ray.start.z = camPos.z;
-         ray.dir = camLook;
+         rightShift = multiply(right, u);
+         upShift = multiply(up, v);
+
+         ray.start = pos;
+         ray.dir = add(look, add(rightShift, upShift));
          
          ray.pixel = y*img_width + x;
          rays[y*img_width + x] = ray;
@@ -226,7 +228,11 @@ int main(void)
    image   = (color_t *)       malloc(image_size);
    
    generateScene(spheres, lights);
-   initRays(rays, IMG_WIDTH, IMG_HEIGHT);
+
+   vector_t camPos = {0, 0, 1.6};
+   vector_t camLook = {0, 0, -1};
+   vector_t camUp = {0, 1, 0};
+   initRays(rays, camPos, camLook, camUp, IMG_WIDTH, IMG_HEIGHT);
 
    // cudaMalloc dev_ arrays
    cudaMalloc(&dev_spheres, spheres_size);
