@@ -13,7 +13,7 @@ typedef struct material {
    color_t diffuse;
    color_t specular;
    color_t ambient;
-   double shininess;
+   int shininess;
 } material_t;
 
 typedef struct vector{
@@ -38,5 +38,11 @@ typedef struct point_light {
    vector_t position;
    color_t color;
 } point_light_t;
+
+typedef struct camera {
+   vector_t position;
+   vector_t look;
+   vector_t up;
+} camera_t;
 
 #endif

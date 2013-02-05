@@ -5,44 +5,63 @@
 #include "vector_math.h"
 #include <math.h>
 
-#ifdef DEBUG
-   #define NUM_SPHERES 1
-   #define NUM_LIGHTS 1
-   #define IMG_WIDTH 8
-   #define IMG_HEIGHT 8
-   #define BLOCK_DIM 1
-   #define DRAW_DIST 500
-#else
-   #define NUM_SPHERES 1
-   #define NUM_LIGHTS 1
-   #define IMG_WIDTH 512
-   #define IMG_HEIGHT 512
-   #define BLOCK_DIM 32
-   #define DRAW_DIST 500
-#endif
+#define NUM_SPHERES 100
+#define SPHERE_RADIUS 1
+#define NUM_LIGHTS 1
+#define DRAW_DIST 50
+#define SCENE_SEED 3
 
-void generateScene(sphere_t *spheres, point_light_t *lights)
+#define IMG_WIDTH 1024
+#define IMG_HEIGHT 1024
+#define BLOCK_DIM 32
+
+void generateScene(sphere_t *spheres, point_light_t *lights, camera_t *camera)
 {
-   // At the moment, creates a single test sphere and light
+   // Generates NUM_SPHERES spheres, randomly placed in the frustum of the camera
+   //  from DRAW_DIST/4 out to DRAW_DIST
 
-   // Make sphere
-   material_t mat;
-   mat.diffuse  = (color_t){0.7, 0.1, 0.1};
-   mat.specular = (color_t){.1, .3, .7};
-   mat.ambient  = (color_t){0.11, 0.1, 0.1};
-   mat.shininess = 500;
+   // The camera is at the origin looking along +Z
+   camera->position = (vector_t){0,0,-2};
+   camera->look = (vector_t){0,0,1};
+   camera->up = (vector_t){0,1,0};
    
-   spheres[0].position = (vector_t){0,0,0};
-   spheres[0].radius = 1;
-   spheres[0].material = mat;
+   srand(SCENE_SEED);
 
-   // Make light
-   lights[0].position = (vector_t){-5, 5, -3};
+   vector_t pos;
+   material_t mat;
+   double spread = 1.5;
+   int zval;
+   for (int i = 0; i < NUM_SPHERES; i++)
+   {
+      zval = DRAW_DIST - pow(rand() % (int)sqrt(DRAW_DIST), 2);
+      pos.z = zval;
+      pos.x = (rand() % (zval+1) - (zval / 2)) * spread;
+      pos.y = (rand() % (zval+1) - (zval / 2)) * spread;
+
+      mat.diffuse.r = (rand() % 100) / 100.0;
+      mat.diffuse.g = (rand() % 100) / 100.0;
+      mat.diffuse.b = (rand() % 100) / 100.0;
+      
+      mat.specular.r = (rand() % 100) / 100.0;
+      mat.specular.g = (rand() % 100) / 100.0;
+      mat.specular.b = (rand() % 100) / 100.0;
+      
+      mat.ambient = (color_t){.05, .05, .05};
+      
+      mat.shininess = pow((rand() % 9) + 2, 2);
+
+      spheres[i].position = pos;
+      spheres[i].radius = 1;
+      spheres[i].material = mat;
+   }
+
+   // Place a single light in the middle of the spheres
+   lights[0].position = (vector_t){0,0,DRAW_DIST/3};
    lights[0].color = (color_t){1,1,1};
 }
 
 // Set up rays based on camera position and image size
-void initRays(ray_t *rays, vector_t pos, vector_t look, vector_t up,
+void initRays(ray_t *rays, camera_t camera,
               int img_height, int img_width)
 {
    ray_t ray;
@@ -51,23 +70,24 @@ void initRays(ray_t *rays, vector_t pos, vector_t look, vector_t up,
    double u, v;
    vector_t right;
 
-   normalize(&look);
-   normalize(&up);
-   right = cross(look, up);
+   normalize(&camera.look);
+   normalize(&camera.up);
+   right = cross(camera.look, camera.up);
    
    // Iterate over all pixels
    for (int y = 0; y < img_height; y++) {
       for (int x = 0; x < img_width; x++)
       {
+         // Calculate ray direction
          u = aspectRatio * x / img_width * 2 - 1;
          v = -((double)y / img_height * 2 - 1);
-
          rightShift = multiply(right, u);
-         upShift = multiply(up, v);
+         upShift = multiply(camera.up, v);
 
-         ray.start = pos;
-         ray.dir = add(look, add(rightShift, upShift));
-         
+         ray.start = camera.position;
+         ray.dir = add(camera.look, add(rightShift, upShift));
+
+         // Which pixel in the array does this ray correspond to?
          ray.pixel = y*img_width + x;
          rays[y*img_width + x] = ray;
       }
@@ -172,7 +192,10 @@ __device__ color_t directIllumination(sphere_t *sphere, ray_t *ray, double t,
       addLightingFactor(&illum, multiply(sphere->material.specular, specDotProd),
                         lights[li].color);
    }
-   
+
+   illum.r = min(illum.r, 1.0);
+   illum.g = min(illum.g, 1.0);
+   illum.b = min(illum.b, 1.0);
    return illum;
 }
 
@@ -216,6 +239,7 @@ int main(void)
    point_light_t *lights, *dev_lights;
    ray_t *rays, *dev_rays;
    color_t *image, *dev_image;
+   camera_t camera;
 
    int spheres_size = NUM_SPHERES * sizeof(sphere_t);
    int lights_size  = NUM_LIGHTS * sizeof(point_light_t);
@@ -227,12 +251,9 @@ int main(void)
    rays    = (ray_t *)         malloc(rays_size);
    image   = (color_t *)       malloc(image_size);
    
-   generateScene(spheres, lights);
+   generateScene(spheres, lights, &camera);
 
-   vector_t camPos = {0, 0, 1.6};
-   vector_t camLook = {0, 0, -1};
-   vector_t camUp = {0, 1, 0};
-   initRays(rays, camPos, camLook, camUp, IMG_WIDTH, IMG_HEIGHT);
+   initRays(rays, camera, IMG_WIDTH, IMG_HEIGHT);
 
    // cudaMalloc dev_ arrays
    cudaMalloc(&dev_spheres, spheres_size);
