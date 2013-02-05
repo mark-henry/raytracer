@@ -43,7 +43,8 @@ inline __device__ __host__ vector_t cross(vector_t a, vector_t b)
    return cross;
 }
 
-inline __device__ __host__ double length(vector_t v) {
+inline __device__ __host__ double length(vector_t v)
+{
    return sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
 }
 

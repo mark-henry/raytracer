@@ -8,12 +8,21 @@
 #define NUM_SPHERES 100
 #define SPHERE_RADIUS 1
 #define NUM_LIGHTS 1
-#define DRAW_DIST 50
-#define SCENE_SEED 3
 
-#define IMG_WIDTH 1024
-#define IMG_HEIGHT 1024
-#define BLOCK_DIM 32
+#define DRAW_DIST 50
+#define SCENE_SEED 4
+
+#define BG_COLOR 0,0,0
+
+#ifdef DEBUG
+   #define IMG_WIDTH 8
+   #define IMG_HEIGHT 8
+   #define BLOCK_DIM 1
+#else
+   #define IMG_WIDTH 1024
+   #define IMG_HEIGHT 1024
+   #define BLOCK_DIM 32
+#endif
 
 void generateScene(sphere_t *spheres, point_light_t *lights, camera_t *camera)
 {
@@ -48,7 +57,7 @@ void generateScene(sphere_t *spheres, point_light_t *lights, camera_t *camera)
       
       mat.ambient = (color_t){.05, .05, .05};
       
-      mat.shininess = pow((rand() % 9) + 2, 2);
+      mat.shininess = pow((rand() % 10) + 1, 2);
 
       spheres[i].position = pos;
       spheres[i].radius = 1;
@@ -155,11 +164,32 @@ inline __device__ void addLightingFactor(color_t *illum, color_t material, color
    illum->b += material.b * light.b;
 }
 
+__device__ bool isInShadow(vector_t start, vector_t ray, sphere_t *spheres,
+                           int num_spheres)
+{
+   ray_t testray;
+   testray.start = start;
+   testray.dir = ray;
+   
+   double distance = length(ray);
+
+   for (int si = 0; si < num_spheres; si++) {
+      double t = sphereIntersectionTest(&spheres[si], &testray);
+      if (t >= 0 && t <= distance)
+         return true;
+   }
+
+   return false;
+}
+
 // Calculates the color of a ray which is known to intersect a sphere
-__device__ color_t directIllumination(sphere_t *sphere, ray_t *ray, double t,
+__device__ color_t directIllumination(sphere_t *sphere, sphere_t *spheres,
+                                      int num_spheres,
+                                      ray_t *ray, double t,
                                       point_light_t *lights, int num_lights)
 {
-   color_t illum = {0,0,0};
+   // Start with ambient light
+   color_t illum = sphere->material.ambient;
 
    // inter is the position of the intersection point
    vector_t inter = add(ray->start, multiply(ray->dir, t));
@@ -170,16 +200,18 @@ __device__ color_t directIllumination(sphere_t *sphere, ray_t *ray, double t,
 
    // V is the eye vector
    vector_t V = ray->dir;
+   V = multiply(V, -1);
    normalize(&V);
 
    // Add diffuse and specular for each point_light
    for (int li = 0; li < num_lights; li++) {
       // L is the incident light vector
       vector_t L = subtract(lights[li].position, inter);
-      normalize(&L);
 
-      // Add ambient
-      addLightingFactor(&illum, sphere->material.ambient, lights[li].color);
+      //if (isInShadow(inter, L, spheres, num_spheres))
+      //   continue;
+
+      normalize(&L);
 
       // Add diffuse
       double dotProd = max(0.0, dotProduct(normal, L));
@@ -188,7 +220,7 @@ __device__ color_t directIllumination(sphere_t *sphere, ray_t *ray, double t,
 
       // Add specular
       vector_t R = reflection(L, normal);
-      double specDotProd = pow(min(0.0, dotProduct(V, R)), sphere->material.shininess);
+      double specDotProd = pow(max(0.0, dotProduct(V, R)), sphere->material.shininess);
       addLightingFactor(&illum, multiply(sphere->material.specular, specDotProd),
                         lights[li].color);
    }
@@ -196,6 +228,7 @@ __device__ color_t directIllumination(sphere_t *sphere, ray_t *ray, double t,
    illum.r = min(illum.r, 1.0);
    illum.g = min(illum.g, 1.0);
    illum.b = min(illum.b, 1.0);
+   
    return illum;
 }
 
@@ -204,7 +237,7 @@ __device__ color_t castRay(ray_t *ray,
                            sphere_t *spheres, int num_spheres,
                            point_light_t *lights, int num_lights)
 {
-   color_t bgColor = {0,0,0};
+   color_t bgColor = {BG_COLOR};
    color_t rayColor = bgColor;
 
    // Does this ray intersect with any spheres?
@@ -214,7 +247,8 @@ __device__ color_t castRay(ray_t *ray,
       t = sphereIntersectionTest(&spheres[sphere], ray);
       if (t > 0 && t < closest) {
          closest = t;
-         rayColor = directIllumination(&spheres[sphere], ray, t, lights, num_lights);
+         rayColor = directIllumination(&spheres[sphere], spheres, num_spheres, ray, t, 
+               lights, num_lights);
       }
    }
 
