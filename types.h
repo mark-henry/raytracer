@@ -31,7 +31,6 @@ typedef struct sphere {
 typedef struct ray {
    vector_t start;
    vector_t dir;
-   int pixel;
 } ray_t;
 
 typedef struct point_light {

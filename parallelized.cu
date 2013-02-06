@@ -12,8 +12,8 @@
 #define LIGHT_FALLOFF_BRIGHTNESS 4
 #define LIGHT_FALLOFF_QUADRATIC 0
 #define LIGHT_FALLOFF_LINEAR .5
+#define SHADOWS
 
-// Good seeds: 5,8,30 10,7,40
 #define SCENE_SEED 10
 #define SCENE_FRONT 7
 #define SCENE_BACK 40
@@ -84,40 +84,6 @@ void generateScene(sphere_t *spheres, point_light_t *lights, camera_t *camera)
       lights[1].position.z = 2*SCENE_BACK;
       lights[1].color = (color_t){1,1,1};
    #endif
-}
-
-// Set up rays based on camera position and image size
-void initRays(ray_t *rays, camera_t camera,
-              int img_width, int img_height)
-{
-   ray_t ray;
-   double aspectRatio = (double)img_width / img_height;
-   vector_t rightShift, upShift;
-   double u, v;
-   vector_t right;
-
-   normalize(&camera.look);
-   normalize(&camera.up);
-   right = cross(camera.look, camera.up);
-   
-   // Iterate over all pixels
-   for (int y = 0; y < img_height; y++) {
-      for (int x = 0; x < img_width; x++)
-      {
-         // Calculate ray direction
-         u = aspectRatio * x / img_width * 2 - 1;
-         v = -((double)y / img_height * 2 - 1);
-         rightShift = multiply(right, u);
-         upShift = multiply(camera.up, v);
-
-         ray.start = camera.position;
-         ray.dir = add(camera.look, add(rightShift, upShift));
-
-         // Which pixel in the array does this ray correspond to?
-         ray.pixel = y*img_width + x;
-         rays[y*img_width + x] = ray;
-      }
-   }
 }
 
 void writeImage(char *filename, color_t *image, int width, int height)
@@ -228,9 +194,11 @@ __device__ color_t directIllumination(sphere_t *sphere, sphere_t *spheres,
       // L is the incident light vector
       vector_t L = subtract(lights[li].position, inter);
 
-      // Skip this light if something is in the way
-      if (isInShadow(inter, L, spheres, num_spheres, sphere))
-         continue;
+      #ifdef SHADOWS
+         // Skip this light if something is in the way
+         if (isInShadow(inter, L, spheres, num_spheres, sphere))
+            continue;
+      #endif
 
       // Calculate light falloff with distance
       double distance = length(L);
@@ -283,57 +251,86 @@ __device__ color_t castRay(ray_t *ray,
 }
 
 // Takes in a scene and outputs an image
-__global__ void rayTrace(ray_t *rays, int num_rays,
+__global__ void rayTrace(camera_t camera,
+                         color_t *pixels, int img_width, int img_height,
                          sphere_t *spheres, int num_spheres,
-                         point_light_t *lights, int num_lights,
-                         color_t *pixels, int num_pixels)
+                         point_light_t *lights, int num_lights)
 {
 
-   int rayIdx = blockDim.x * blockIdx.x + threadIdx.x;
-   pixels[rays[rayIdx].pixel] =
-      castRay(&rays[rayIdx], spheres, num_spheres, lights, num_lights);
+   int idx = blockDim.x * blockIdx.x + threadIdx.x;
+   if (idx >= img_width * img_height)
+      return;
+   
+   ray_t ray;
+
+   // Initialize this thread's ray
+   int x = idx % img_width;
+   int y = idx / img_height;
+   double aspectRatio = (double)img_width / img_height;
+   vector_t rightShift, upShift;
+   vector_t right;
+   double u, v;
+
+   normalize(&camera.look);
+   normalize(&camera.up);
+   right = cross(camera.look, camera.up);
+
+   u = aspectRatio * x / img_width * 2 - 1;
+   v = -((double)y / img_height * 2 - 1);
+   rightShift = multiply(right, u);
+   upShift = multiply(camera.up, v);
+
+   ray.start = camera.position;
+   ray.dir = add(camera.look, add(rightShift, upShift));
+
+   pixels[idx] =
+      castRay(&ray, spheres, num_spheres, lights, num_lights);
 }
 
 int main(void)
 {
    sphere_t *spheres, *dev_spheres;
    point_light_t *lights, *dev_lights;
-   ray_t *rays, *dev_rays;
    color_t *image, *dev_image;
    camera_t camera;
 
    int spheres_size = NUM_SPHERES * sizeof(sphere_t);
    int lights_size  = NUM_LIGHTS * sizeof(point_light_t);
-   int rays_size  = IMG_HEIGHT*IMG_WIDTH*sizeof(ray_t);
    int image_size = IMG_HEIGHT*IMG_WIDTH*sizeof(color_t);
    
    spheres = (sphere_t *)      malloc(spheres_size);
    lights  = (point_light_t *) malloc(lights_size);
-   rays    = (ray_t *)         malloc(rays_size);
    image   = (color_t *)       malloc(image_size);
    
    generateScene(spheres, lights, &camera);
 
-   initRays(rays, camera, IMG_WIDTH, IMG_HEIGHT);
-
    // cudaMalloc dev_ arrays
    cudaMalloc(&dev_spheres, spheres_size);
    cudaMalloc(&dev_lights, lights_size);
-   cudaMalloc(&dev_rays, rays_size);
    cudaMalloc(&dev_image, image_size);
    
    // cudaMemcpy the problem to device
    cudaMemcpy(dev_spheres, spheres, spheres_size, cudaMemcpyHostToDevice);
    cudaMemcpy(dev_lights, lights, lights_size, cudaMemcpyHostToDevice);
-   cudaMemcpy(dev_rays, rays, rays_size, cudaMemcpyHostToDevice);
    
    // Invoke kernel
+   cudaEvent_t start, stop;
+   cudaEventCreate(&start);
+   cudaEventCreate(&stop);
+   cudaEventRecord(start, 0);
+   
    int dimBlock = BLOCK_DIM;
    int dimGrid = (IMG_HEIGHT*IMG_WIDTH) / BLOCK_DIM;
-   rayTrace<<<dimGrid, dimBlock>>>(dev_rays, IMG_HEIGHT*IMG_WIDTH,
+   rayTrace<<<dimGrid, dimBlock>>>(camera,
+                                   dev_image, IMG_WIDTH, IMG_HEIGHT,
                                    dev_spheres, NUM_SPHERES,
-                                   dev_lights, NUM_LIGHTS,
-                                   dev_image, IMG_HEIGHT*IMG_WIDTH);
+                                   dev_lights, NUM_LIGHTS);
+
+   cudaEventRecord(stop, 0);
+   cudaEventSynchronize(stop);
+   float elapsedTime;
+   cudaEventElapsedTime(&elapsedTime, start, stop);
+   printf("Time in kernel: %.1f ms\n", elapsedTime);
 
    // cudaMemcpy the result image from the device
    cudaMemcpy(image, dev_image, image_size, cudaMemcpyDeviceToHost);
@@ -344,11 +341,9 @@ int main(void)
    // Free memory
    free(spheres);
    free(lights);
-   free(rays);
    free(image);
    cudaFree(dev_spheres);
    cudaFree(dev_lights);
-   cudaFree(dev_rays);
    cudaFree(dev_image);
 
    return 0;
