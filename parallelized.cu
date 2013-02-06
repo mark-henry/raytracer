@@ -7,16 +7,23 @@
 
 #define NUM_SPHERES 100
 #define SPHERE_RADIUS 1
+
 #define NUM_LIGHTS 1
+#define LIGHT_FALLOFF_BRIGHTNESS 4
+#define LIGHT_FALLOFF_QUADRATIC 0
+#define LIGHT_FALLOFF_LINEAR .5
 
-#define DRAW_DIST 50
-#define SCENE_SEED 4
+// Good seeds: 5,8,30 10,7,40
+#define SCENE_SEED 10
+#define SCENE_FRONT 7
+#define SCENE_BACK 40
 
+#define DRAW_DIST 200
 #define BG_COLOR 0,0,0
 
 #ifdef DEBUG
    #define IMG_WIDTH 8
-   #define IMG_HEIGHT 8
+   #define IMG_HEIGHT 4
    #define BLOCK_DIM 1
 #else
    #define IMG_WIDTH 1024
@@ -27,10 +34,10 @@
 void generateScene(sphere_t *spheres, point_light_t *lights, camera_t *camera)
 {
    // Generates NUM_SPHERES spheres, randomly placed in the frustum of the camera
-   //  from DRAW_DIST/4 out to DRAW_DIST
+   //  from SCENE_FRONT to SCENE_BACK
 
    // The camera is at the origin looking along +Z
-   camera->position = (vector_t){0,0,-2};
+   camera->position = (vector_t){0,0,0};
    camera->look = (vector_t){0,0,1};
    camera->up = (vector_t){0,1,0};
    
@@ -38,11 +45,11 @@ void generateScene(sphere_t *spheres, point_light_t *lights, camera_t *camera)
 
    vector_t pos;
    material_t mat;
-   double spread = 1.5;
+   double spread = 1.2;
    int zval;
    for (int i = 0; i < NUM_SPHERES; i++)
    {
-      zval = DRAW_DIST - pow(rand() % (int)sqrt(DRAW_DIST), 2);
+      zval = (rand() % (SCENE_BACK-SCENE_FRONT)) + SCENE_FRONT;
       pos.z = zval;
       pos.x = (rand() % (zval+1) - (zval / 2)) * spread;
       pos.y = (rand() % (zval+1) - (zval / 2)) * spread;
@@ -57,7 +64,7 @@ void generateScene(sphere_t *spheres, point_light_t *lights, camera_t *camera)
       
       mat.ambient = (color_t){.05, .05, .05};
       
-      mat.shininess = pow((rand() % 10) + 1, 2);
+      mat.shininess = pow((rand() % 10) + 2, 2);
 
       spheres[i].position = pos;
       spheres[i].radius = 1;
@@ -65,16 +72,26 @@ void generateScene(sphere_t *spheres, point_light_t *lights, camera_t *camera)
    }
 
    // Place a single light in the middle of the spheres
-   lights[0].position = (vector_t){0,0,DRAW_DIST/3};
+   lights[0].position.x = 0;
+   lights[0].position.y = -4;
+   lights[0].position.z = SCENE_FRONT;
    lights[0].color = (color_t){1,1,1};
+
+   // Place another one for fill lighting
+   #if NUM_LIGHTS > 1
+      lights[1].position.x = -SCENE_BACK;
+      lights[1].position.y = 2;
+      lights[1].position.z = 2*SCENE_BACK;
+      lights[1].color = (color_t){1,1,1};
+   #endif
 }
 
 // Set up rays based on camera position and image size
 void initRays(ray_t *rays, camera_t camera,
-              int img_height, int img_width)
+              int img_width, int img_height)
 {
    ray_t ray;
-   double aspectRatio = (double)img_height / img_width;
+   double aspectRatio = (double)img_width / img_height;
    vector_t rightShift, upShift;
    double u, v;
    vector_t right;
@@ -157,15 +174,17 @@ __device__ double sphereIntersectionTest(sphere_t *sphere, ray_t *in_ray)
 }
 
 // Helper function for illumination calculations
-inline __device__ void addLightingFactor(color_t *illum, color_t material, color_t light)
+inline __device__ void applyLightingFactor(color_t *illum, color_t material, color_t light)
 {
    illum->r += material.r * light.r;
    illum->g += material.g * light.g;
    illum->b += material.b * light.b;
 }
 
+// Tests if any spheres lie along the line segment
+//  from (start) to (start+ray)
 __device__ bool isInShadow(vector_t start, vector_t ray, sphere_t *spheres,
-                           int num_spheres)
+                           int num_spheres, sphere_t *ignore_sphere)
 {
    ray_t testray;
    testray.start = start;
@@ -174,8 +193,10 @@ __device__ bool isInShadow(vector_t start, vector_t ray, sphere_t *spheres,
    double distance = length(ray);
 
    for (int si = 0; si < num_spheres; si++) {
+      if (&spheres[si] == ignore_sphere)
+         continue;
       double t = sphereIntersectionTest(&spheres[si], &testray);
-      if (t >= 0 && t <= distance)
+      if (t > 0 && t <= distance)
          return true;
    }
 
@@ -199,29 +220,35 @@ __device__ color_t directIllumination(sphere_t *sphere, sphere_t *spheres,
    normalize(&normal);
 
    // V is the eye vector
-   vector_t V = ray->dir;
-   V = multiply(V, -1);
+   vector_t V = multiply(ray->dir, -1);
    normalize(&V);
 
-   // Add diffuse and specular for each point_light
+   // For each point_light, add diffuse and specular
    for (int li = 0; li < num_lights; li++) {
       // L is the incident light vector
       vector_t L = subtract(lights[li].position, inter);
 
-      //if (isInShadow(inter, L, spheres, num_spheres))
-      //   continue;
+      // Skip this light if something is in the way
+      if (isInShadow(inter, L, spheres, num_spheres, sphere))
+         continue;
 
+      // Calculate light falloff with distance
+      double distance = length(L);
+      double distanceFactor = LIGHT_FALLOFF_BRIGHTNESS / (
+         LIGHT_FALLOFF_LINEAR * distance +
+         LIGHT_FALLOFF_QUADRATIC * pow(distance, 2));
       normalize(&L);
 
       // Add diffuse
-      double dotProd = max(0.0, dotProduct(normal, L));
-      addLightingFactor(&illum, multiply(sphere->material.diffuse, dotProd),
+      double diffFactor = distanceFactor * max(0.0, dotProduct(normal, L));
+      applyLightingFactor(&illum, multiply(sphere->material.diffuse, diffFactor),
                         lights[li].color);
 
       // Add specular
       vector_t R = reflection(L, normal);
-      double specDotProd = pow(max(0.0, dotProduct(V, R)), sphere->material.shininess);
-      addLightingFactor(&illum, multiply(sphere->material.specular, specDotProd),
+      double specFactor = distanceFactor *
+         pow(max(0.0, dotProduct(V, R)), sphere->material.shininess);
+      applyLightingFactor(&illum, multiply(sphere->material.specular, specFactor),
                         lights[li].color);
    }
 
