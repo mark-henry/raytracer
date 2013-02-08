@@ -16,7 +16,7 @@
 *.tga
 
 # Executables
-raytrace
+realtime
 
 # Scratch files
 *~
