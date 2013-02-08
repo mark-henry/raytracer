@@ -1,12 +1,11 @@
-#ifndef __TYPES_H__
-#define __TYPES_H__
+#pragma once
 
 /* Color struct */
 typedef struct color {
-   double r;
-   double g;
-   double b;
-   double f; // "filter" or "alpha"
+   unsigned char r;
+   unsigned char g;
+   unsigned char b;
+   unsigned char f; // "filter" or "alpha"
 } color_t;
 
 typedef struct material {
@@ -43,5 +42,3 @@ typedef struct camera {
    vector_t look;
    vector_t up;
 } camera_t;
-
-#endif

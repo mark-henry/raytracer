@@ -1,6 +1,5 @@
-#include <stdio.h>
 #include <stdlib.h>
-#include "Image.h"
+#include <stdio.h>
 #include "types.h"
 #include "vector_math.h"
 #include <math.h>
@@ -54,15 +53,15 @@ void generateScene(sphere_t *spheres, point_light_t *lights, camera_t *camera)
       pos.x = (rand() % (zval+1) - (zval / 2)) * spread;
       pos.y = (rand() % (zval+1) - (zval / 2)) * spread;
 
-      mat.diffuse.r = (rand() % 100) / 100.0;
-      mat.diffuse.g = (rand() % 100) / 100.0;
-      mat.diffuse.b = (rand() % 100) / 100.0;
+      mat.diffuse.r = rand() % 255;
+      mat.diffuse.g = rand() % 255;
+      mat.diffuse.b = rand() % 255;
       
-      mat.specular.r = (rand() % 100) / 100.0;
-      mat.specular.g = (rand() % 100) / 100.0;
-      mat.specular.b = (rand() % 100) / 100.0;
+      mat.specular.r = (rand() % 64) * 4;
+      mat.specular.g = (rand() % 64) * 4;
+      mat.specular.b = (rand() % 64) * 4;
       
-      mat.ambient = (color_t){.05, .05, .05};
+      mat.ambient = (color_t){12, 12, 12};
       
       mat.shininess = pow((rand() % 10) + 2, 2);
 
@@ -78,25 +77,12 @@ void generateScene(sphere_t *spheres, point_light_t *lights, camera_t *camera)
    lights[0].color = (color_t){1,1,1};
 
    // Place another one for fill lighting
-   #if NUM_LIGHTS > 1
+   #if NUM_LIGHTS == 2
       lights[1].position.x = -SCENE_BACK;
       lights[1].position.y = 2;
       lights[1].position.z = 2*SCENE_BACK;
       lights[1].color = (color_t){1,1,1};
    #endif
-}
-
-void writeImage(char *filename, color_t *image, int width, int height)
-{
-   Image img(width, height);
-
-   // Copy image to Image object
-   // Image is weird: (0,0) is the lower left corner
-   for (int y = 0; y < height; y++)
-      for (int x = 0; x < width; x++)
-         img.pixel(x, height-y-1, image[width*y + x]);
-   
-   img.WriteTga(filename, false);
 }
 
 // Returns the t-parameter value of the intersection between
@@ -220,9 +206,9 @@ __device__ color_t directIllumination(sphere_t *sphere, sphere_t *spheres,
                         lights[li].color);
    }
 
-   illum.r = min(illum.r, 1.0);
-   illum.g = min(illum.g, 1.0);
-   illum.b = min(illum.b, 1.0);
+   illum.r = min(illum.r, 255);
+   illum.g = min(illum.g, 255);
+   illum.b = min(illum.b, 255);
    
    return illum;
 }
@@ -261,9 +247,8 @@ __global__ void rayTrace(camera_t camera,
    if (idx >= img_width * img_height)
       return;
    
-   ray_t ray;
-
    // Initialize this thread's ray
+   ray_t ray;
    int x = idx % img_width;
    int y = idx / img_height;
    double aspectRatio = (double)img_width / img_height;
@@ -287,64 +272,71 @@ __global__ void rayTrace(camera_t camera,
       castRay(&ray, spheres, num_spheres, lights, num_lights);
 }
 
-int main(void)
+void checkCUDAError(const char *msg) {
+  cudaError_t err = cudaGetLastError();
+  if( cudaSuccess != err) {
+    fprintf(stderr, "Cuda error: %s: %s.\n", msg, cudaGetErrorString( err) );
+    exit(EXIT_FAILURE);
+  }
+} 
+
+// Wrapper for the __global__ call that sets up the kernel call
+extern "C" void launch_kernel(uchar4* image, unsigned int img_width,
+                  unsigned int img_height, float time)
 {
    sphere_t *spheres, *dev_spheres;
    point_light_t *lights, *dev_lights;
-   color_t *image, *dev_image;
    camera_t camera;
 
    int spheres_size = NUM_SPHERES * sizeof(sphere_t);
    int lights_size  = NUM_LIGHTS * sizeof(point_light_t);
-   int image_size = IMG_HEIGHT*IMG_WIDTH*sizeof(color_t);
+   //int image_size = img_height*img_width*sizeof(color_t);
    
    spheres = (sphere_t *)      malloc(spheres_size);
    lights  = (point_light_t *) malloc(lights_size);
-   image   = (color_t *)       malloc(image_size);
-   
+
    generateScene(spheres, lights, &camera);
 
    // cudaMalloc dev_ arrays
    cudaMalloc(&dev_spheres, spheres_size);
    cudaMalloc(&dev_lights, lights_size);
-   cudaMalloc(&dev_image, image_size);
+   //cudaMalloc(&dev_image, image_size);
    
    // cudaMemcpy the problem to device
    cudaMemcpy(dev_spheres, spheres, spheres_size, cudaMemcpyHostToDevice);
    cudaMemcpy(dev_lights, lights, lights_size, cudaMemcpyHostToDevice);
    
-   // Invoke kernel
-   cudaEvent_t start, stop;
-   cudaEventCreate(&start);
-   cudaEventCreate(&stop);
-   cudaEventRecord(start, 0);
+   //cudaEvent_t start, stop;
+   //cudaEventCreate(&start);
+   //cudaEventCreate(&stop);
+   //cudaEventRecord(start, 0);
    
+   // Invoke kernel
    int dimBlock = BLOCK_DIM;
-   int dimGrid = (IMG_HEIGHT*IMG_WIDTH) / BLOCK_DIM;
-   rayTrace<<<dimGrid, dimBlock>>>(camera,
-                                   dev_image, IMG_WIDTH, IMG_HEIGHT,
+   int dimGrid = (img_height*img_width) / BLOCK_DIM;
+   // COINCIDENCE WARNING: assuming color_t can be cast to a uchar4
+   rayTrace<<<dimGrid, dimBlock>>>(camera, (color_t*)image,
+                                   img_width, img_height,
                                    dev_spheres, NUM_SPHERES,
                                    dev_lights, NUM_LIGHTS);
 
-   cudaEventRecord(stop, 0);
-   cudaEventSynchronize(stop);
-   float elapsedTime;
-   cudaEventElapsedTime(&elapsedTime, start, stop);
-   printf("Time in kernel: %.1f ms\n", elapsedTime);
+   //cudaThreadSynchronize();
+   //checkCUDAError("kernel failed!");
+   
+   //cudaEventRecord(stop, 0);
+   //cudaEventSynchronize(stop);
+   //float elapsedTime;
+   //cudaEventElapsedTime(&elapsedTime, start, stop);
+   //printf("Time in kernel: %.1f ms\n", elapsedTime);
 
    // cudaMemcpy the result image from the device
-   cudaMemcpy(image, dev_image, image_size, cudaMemcpyDeviceToHost);
    
-   // write image to output file
-   writeImage("awesome.tga", image, IMG_WIDTH, IMG_HEIGHT);
-
+   //cudaMemcpy(image, dev_image, image_size, cudaMemcpyDeviceToHost);
+   
    // Free memory
    free(spheres);
    free(lights);
-   free(image);
    cudaFree(dev_spheres);
    cudaFree(dev_lights);
-   cudaFree(dev_image);
-
-   return 0;
+   //cudaFree(dev_image);
 }

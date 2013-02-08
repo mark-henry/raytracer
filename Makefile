@@ -1,15 +1,24 @@
-NVFLAGS= -g -arch=compute_20 -code=sm_20
+CC=nvcc
+CFLAGS= -O3 -g -c -DGL_GLEXT_PROTOTYPES
+LDFLAGS= -lGL -lGLU -lglut
+NVFLAGS= -O3 -c -arch=compute_20 -code=sm_20
 
-raytrace: parallelized.cu Image.cpp
-	nvcc $(NVFLAGS) $^ -o raytrace
+OBJS = callbacksPBO.o tracer.o simpleGLmain.o simplePBO.o
 
-raytrace-debug: parallelized.cu Image.cpp
-	nvcc $(NVFLAGS) $^ -o raytrace-debug -DDEBUG
+realtime: $(OBJS)
+	$(CC) $(LDFLAGS) $^ -o $@
+	
+callbacksPBO.o: callbacksPBO.cpp
+	$(CC) $(CFLAGS) -o $@ $<
 
-debug: raytrace-debug
-	./raytrace-debug
-	eog awesome.tga &
+tracer.o: tracer.cu
+	$(CC) $(NVFLAGS) -o $@ $<
 
-run: raytrace
-	./raytrace
-	eog awesome.tga &
+simpleGLmain.o: simpleGLmain.cpp
+	$(CC) $(CFLAGS) -o $@ $<
+
+simplePBO.o: simplePBO.cpp
+	$(CC) $(CFLAGS) -o $@ $<
+
+run: realtime
+	./realtime
