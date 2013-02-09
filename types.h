@@ -2,10 +2,10 @@
 
 /* Color struct */
 typedef struct color {
-   unsigned char r;
-   unsigned char g;
-   unsigned char b;
-   unsigned char f; // "filter" or "alpha"
+   double r;
+   double g;
+   double b;
+   double f; // "filter" or "alpha"
 } color_t;
 
 typedef struct material {

@@ -1,7 +1,7 @@
 CC=nvcc
-CFLAGS= -O3 -g -c -DGL_GLEXT_PROTOTYPES
+CFLAGS= -c -DGL_GLEXT_PROTOTYPES -O3
+NVFLAGS= -c -O3 -arch=compute_20 -code=sm_20 -Xptxas -dlcm=ca
 LDFLAGS= -lGL -lGLU -lglut
-NVFLAGS= -O3 -c -arch=compute_20 -code=sm_20
 
 OBJS = callbacksPBO.o tracer.o simpleGLmain.o simplePBO.o
 
