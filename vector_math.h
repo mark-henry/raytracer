@@ -26,7 +26,10 @@ inline __device__ __host__ vector_t add(vector_t a, vector_t b)
 
 inline __device__ __host__ vector_t subtract(vector_t a, vector_t b)
 {
-   return add(a, multiply(b, -1.0));
+   a.x -= b.x;
+   a.y -= b.y;
+   a.z -= b.z;
+   return a;
 }
 
 inline __device__ __host__ double dotProduct(vector_t a, vector_t b)
@@ -50,10 +53,10 @@ inline __device__ __host__ double length(vector_t v)
 
 inline __device__ __host__ void normalize(vector_t *v)
 {
-   double len = length(*v);
-   v->x /= len;
-   v->y /= len;
-   v->z /= len;
+   double len =  1 / length(*v);
+   v->x *= len;
+   v->y *= len;
+   v->z *= len;
 }
 
 inline __device__ __host__ vector_t reflection(vector_t in,
@@ -62,9 +65,9 @@ inline __device__ __host__ vector_t reflection(vector_t in,
    vector_t R;
    double dotProd = dotProduct(in, across);
 
-   R.x = -1 * in.x + 2 * dotProd * across.x;
-   R.y = -1 * in.y + 2 * dotProd * across.y;
-   R.z = -1 * in.z + 2 * dotProd * across.z;
+   R.x = 2 * dotProd * across.x - in.x;
+   R.y = 2 * dotProd * across.y - in.y;
+   R.z = 2 * dotProd * across.z - in.z;
    
    return R;
 }

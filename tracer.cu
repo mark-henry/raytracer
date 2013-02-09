@@ -7,7 +7,7 @@
 #define NUM_SPHERES 100
 #define SPHERE_RADIUS 1
 
-#define NUM_LIGHTS 2
+#define NUM_LIGHTS 1
 #define LIGHT_FALLOFF_BRIGHTNESS 4
 #define LIGHT_FALLOFF_QUADRATIC 0
 #define LIGHT_FALLOFF_LINEAR .5
@@ -164,7 +164,7 @@ __device__ color_t directIllumination(sphere_t *sphere, sphere_t *spheres,
 
    // normal is the surface normal at the point of intersection
    vector_t normal = subtract(inter, sphere->position);
-   normalize(&normal);
+   //normalize(&normal); // We can skip this if sphere radius is 1
 
    // V is the eye vector
    vector_t V = multiply(ray->dir, -1);
@@ -187,7 +187,8 @@ __device__ color_t directIllumination(sphere_t *sphere, sphere_t *spheres,
       double distanceFactor = LIGHT_FALLOFF_BRIGHTNESS /
          (LIGHT_FALLOFF_LINEAR * distance);
 
-      normalize(&L);
+      // Normalize L
+      L = multiply(L, 1.0 / distance);
 
       // Add diffuse
       double diffFactor = distanceFactor * max(0.0, dotProduct(normal, L));
@@ -218,15 +219,21 @@ __device__ color_t castRay(ray_t *ray,
    color_t rayColor = bgColor;
 
    // Does this ray intersect with any spheres?
-   double closest = DRAW_DIST;
    double t;
+   double smallestT = DRAW_DIST;
+   sphere_t *frontmostSphere;
    for (int sphere = 0; sphere < num_spheres; sphere++) {
       t = sphereIntersectionTest(&spheres[sphere], *ray);
-      if (t > 0 && t < closest) {
-         closest = t;
-         rayColor = directIllumination(&spheres[sphere], spheres, num_spheres, ray, t, 
-               lights, num_lights);
+      if (t > 0 && t < smallestT) {
+         smallestT = t;
+         frontmostSphere = &spheres[sphere];
       }
+   }
+
+   // If so, draw them
+   if (smallestT < DRAW_DIST) {
+      rayColor = directIllumination(frontmostSphere, spheres, num_spheres,
+                                    ray, smallestT, lights, num_lights);
    }
 
    return rayColor;
@@ -294,10 +301,12 @@ extern "C" void launch_kernel(uchar4* image, unsigned int img_width,
    spheres = (sphere_t *)      malloc(spheres_size);
    lights  = (point_light_t *) malloc(lights_size);
 
+   /*
    cudaEvent_t start, stop;
    cudaEventCreate(&start);
    cudaEventCreate(&stop);
    cudaEventRecord(start, 0);
+   */
 
    generateScene(spheres, lights);
 
@@ -324,12 +333,14 @@ extern "C" void launch_kernel(uchar4* image, unsigned int img_width,
 
    cudaThreadSynchronize();
    checkCUDAError("kernel failed!");
-   
+
+   /*
    cudaEventRecord(stop, 0);
    cudaEventSynchronize(stop);
    float elapsedTime;
    cudaEventElapsedTime(&elapsedTime, start, stop);
    printf("Time in tracer: %.1f ms\n", elapsedTime);
+   */
    
    // Free memory
    free(spheres);
