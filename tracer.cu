@@ -30,6 +30,10 @@
    #define BLOCK_DIM 32
 #endif
 
+sphere_t *spheres, *dev_spheres;
+point_light_t *lights, *dev_lights;
+bool sceneInitted = false;
+
 void generateScene(sphere_t *spheres, point_light_t *lights)
 {
    // Generates NUM_SPHERES spheres, randomly placed in the frustum of the camera
@@ -259,8 +263,8 @@ __global__ void rayTrace(camera_t camera,
    vector_t right;
    double u, v;
 
-   normalize(&camera.look);
-   normalize(&camera.up);
+   //normalize(&camera.look);
+   //normalize(&camera.up);
    right = cross(camera.look, camera.up);
 
    u = aspectRatio * x / img_width * 2 - 1;
@@ -285,21 +289,16 @@ void checkCUDAError(const char *msg) {
     fprintf(stderr, "Cuda error: %s: %s.\n", msg, cudaGetErrorString( err) );
     exit(EXIT_FAILURE);
   }
-} 
+}
 
 // Wrapper for the __global__ call that sets up the kernel call
 extern "C" void launch_kernel(uchar4* image, unsigned int img_width,
                   unsigned int img_height, float time)
 {
-   sphere_t *spheres, *dev_spheres;
-   point_light_t *lights, *dev_lights;
    camera_t camera;
 
    int spheres_size = NUM_SPHERES * sizeof(sphere_t);
    int lights_size  = NUM_LIGHTS * sizeof(point_light_t);
-   
-   spheres = (sphere_t *)      malloc(spheres_size);
-   lights  = (point_light_t *) malloc(lights_size);
 
    /*
    cudaEvent_t start, stop;
@@ -307,21 +306,37 @@ extern "C" void launch_kernel(uchar4* image, unsigned int img_width,
    cudaEventCreate(&stop);
    cudaEventRecord(start, 0);
    */
+   
+   if (!sceneInitted)
+   {
+      spheres = (sphere_t *)      malloc(spheres_size);
+      lights  = (point_light_t *) malloc(lights_size);
+      
+      cudaMalloc(&dev_spheres, spheres_size);
+      cudaMalloc(&dev_lights, lights_size);
+         
+      generateScene(spheres, lights);
 
-   generateScene(spheres, lights);
+      // cudaMalloc dev_ arrays
+      cudaMalloc(&dev_spheres, spheres_size);
+      cudaMalloc(&dev_lights, lights_size);
+
+      // cudaMemcpy the problem to device
+      cudaMemcpy(dev_spheres, spheres, spheres_size, cudaMemcpyHostToDevice);
+      cudaMemcpy(dev_lights, lights, lights_size, cudaMemcpyHostToDevice);
+      
+      free(spheres);
+      free(lights);
+      
+      sceneInitted = true;
+      printf("Scene initialized\n");
+   }
 
    // Set up camera based on time param
-   camera.position = (vector_t){2*cos(time/2), 0, 0.2*sin(time)};
+   time /= 6;
+   camera.position = (vector_t){2*cos(time), 0, 0.2*sin(time)};
    camera.look = (vector_t){0,0,1};
    camera.up = (vector_t){0,1,0};
-   
-   // cudaMalloc dev_ arrays
-   cudaMalloc(&dev_spheres, spheres_size);
-   cudaMalloc(&dev_lights, lights_size);
-
-   // cudaMemcpy the problem to device
-   cudaMemcpy(dev_spheres, spheres, spheres_size, cudaMemcpyHostToDevice);
-   cudaMemcpy(dev_lights, lights, lights_size, cudaMemcpyHostToDevice);
    
    // Invoke kernel
    int dimBlock = BLOCK_DIM;
@@ -342,9 +357,6 @@ extern "C" void launch_kernel(uchar4* image, unsigned int img_width,
    printf("Time in tracer: %.1f ms\n", elapsedTime);
    */
    
-   // Free memory
-   free(spheres);
-   free(lights);
-   cudaFree(dev_spheres);
-   cudaFree(dev_lights);
+   //cudaFree(dev_spheres);
+   //cudaFree(dev_lights);
 }
