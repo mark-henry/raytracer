@@ -164,6 +164,7 @@ __device__ color_t directIllumination(sphere_t *sphere, sphere_t *spheres,
    color_t illum = sphere->material.ambient;
 
    // inter is the position of the intersection point
+   //vector_t eye = ray->dir;
    vector_t inter = add(ray->start, multiply(ray->dir, t));
 
    // normal is the surface normal at the point of intersection
@@ -219,9 +220,6 @@ __device__ color_t castRay(ray_t *ray,
                            sphere_t *spheres, int num_spheres,
                            point_light_t *lights, int num_lights)
 {
-   color_t bgColor = {BG_COLOR};
-   color_t rayColor = bgColor;
-
    // Does this ray intersect with any spheres?
    double t;
    double smallestT = DRAW_DIST;
@@ -236,11 +234,12 @@ __device__ color_t castRay(ray_t *ray,
 
    // If so, draw them
    if (smallestT < DRAW_DIST) {
-      rayColor = directIllumination(frontmostSphere, spheres, num_spheres,
+      return directIllumination(frontmostSphere, spheres, num_spheres,
                                     ray, smallestT, lights, num_lights);
    }
-
-   return rayColor;
+   else {
+      return (color_t){BG_COLOR};
+   }
 }
 
 // Takes in a scene and outputs an image
